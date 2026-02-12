@@ -2,40 +2,54 @@
 
 namespace App\Infrastructure\Http;
 
-use FastRoute\Dispatcher;
+use Nyholm\Psr7\Response;
+use Psr\Http\Message\ResponseInterface;
+use Relay\Relay;
+use Psr\Http\Message\ServerRequestInterface;
 use FastRoute\RouteCollector;
+use FastRoute\Dispatcher;
 use function FastRoute\simpleDispatcher;
 
 final class Kernel
 {
-    public function handle($container, $request)
+    public function handle($container, ServerRequestInterface $request): ResponseInterface
     {
-        $dispatcher = simpleDispatcher(function (RouteCollector $r) {
-            Router::register($r);
+        $dispatcher = simpleDispatcher(function(RouteCollector $route_collector_instance) {
+            Router::register($route_collector_instance);
         });
 
-        $routeInfo = $dispatcher->dispatch(
-            $request->getMethod(),
-            $request->getUri()->getPath()
-        );
+        $routerMiddleware = function ($request, $next) use ($dispatcher, $container) {
 
-        switch ($routeInfo[0]) {
-            case Dispatcher::NOT_FOUND:
-                http_response_code(404);
-                echo "Not Found";
-                break;
+            $routeInfo = $dispatcher->dispatch(
+                $request->getMethod(),
+                $request->getUri()->getPath()
+            );
 
-            case Dispatcher::METHOD_NOT_ALLOWED:
-                http_response_code(405);
-                echo "Method Not Allowed";
-                break;
+            switch ($routeInfo[0]) {
+                case Dispatcher::NOT_FOUND:
+                    return new Response(404, [], 'Not Found');
 
-            case Dispatcher::FOUND:
-                [$class, $method] = $routeInfo[1];
+                case Dispatcher::METHOD_NOT_ALLOWED:
+                    return new Response(405, [], 'Method Not Allowed');
 
-                $controller = $container->get($class);
-                return $controller->$method();
-        }
+                case Dispatcher::FOUND:
+                    [$class, $method] = $routeInfo[1];
+
+                    $controller = $container->get($class);
+
+                    return $controller->$method($request);
+            }
+        };
+
+        $queue = [
+            new Middleware\ErrorMiddleware(),
+            new Middleware\LoggingMiddleware(),
+            new Middleware\CorsMiddleware(),
+            $routerMiddleware
+        ];
+
+        $relay = new Relay($queue);
+
+        return $relay->handle($request);
     }
 }
-
