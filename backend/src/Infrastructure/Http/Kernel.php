@@ -18,7 +18,7 @@ final class Kernel
             Router::register($route_collector_instance);
         });
 
-        $routerMiddleware = function ($request, $next) use ($dispatcher, $container) {
+        $routerMiddleware = function (ServerRequestInterface $request, callable $next) use ($dispatcher, $container) {
 
             $routeInfo = $dispatcher->dispatch(
                 $request->getMethod(),
@@ -38,6 +38,9 @@ final class Kernel
                     $controller = $container->get($class);
 
                     return $controller->$method($request);
+
+                default:
+                    throw new \RuntimeException('Invalid routing state');
             }
         };
 
